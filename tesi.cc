@@ -504,10 +504,11 @@ main(int argc, char* argv[])
     std::string errorModel = "ns3::NrEesmIrT1";
     std::string scheduler = "ns3::NrMacSchedulerTdmaRR";
     std::string beamformingMethod = "ns3::DirectPathBeamforming";
-    uint16_t numerology = 0;
+    uint16_t numerology = 1;
 
     double txPower = 29.0;                    // dBm
     std::string tddPattern = "UL|UL|UL|UL|UL|UL|UL|UL|UL|UL|";
+    std::string tddgnbPattern = "DL|DL|DL|DL|DL|UL|UL|UL|UL|UL|";
     std::string slBitMap = "1|1|1|1|1|1|1|1|1|1|";
     uint16_t numerologyBwpSl = 3;
     uint16_t slSensingWindow = 100; // T0 in ms
@@ -631,14 +632,15 @@ main(int argc, char* argv[])
     {
         LogLevel logLevel =
             (LogLevel)(LOG_PREFIX_FUNC | LOG_PREFIX_TIME | LOG_PREFIX_NODE | LOG_LEVEL_ALL);
-        LogComponentEnable("OnOffApplication", logLevel);
-        LogComponentEnable("PacketSink", logLevel);
-        LogComponentEnable("LtePdcp", logLevel);
-        LogComponentEnable("NrSlHelper", logLevel);
-        LogComponentEnable("NrSlUeRrc", logLevel);
+        //LogComponentEnable("OnOffApplication", logLevel);
+        //LogComponentEnable("PacketSink", logLevel);
+        //LogComponentEnable("LtePdcp", logLevel);
+        //LogComponentEnable("NrSlHelper", logLevel);
+        //LogComponentEnable("NrSlUeRrc", logLevel);
+        //LogComponentEnable("NrUeMac", logLevel);
         LogComponentEnable("NrUePhy", logLevel);
-        LogComponentEnable("NrSpectrumPhy", logLevel);
-        LogComponentEnable("NrGnbMac", logLevel);
+        //LogComponentEnable("NrSpectrumPhy", logLevel);
+        //LogComponentEnable("NrGnbMac", logLevel);
         LogComponentEnable("NrGnbPhy", logLevel);   
     }
 
@@ -816,6 +818,9 @@ main(int argc, char* argv[])
      */
     NetDeviceContainer gNBNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwpsFR1);
     NetDeviceContainer ueNetDev = nrHelper->InstallUeDevice(allFR1UEContainer, allBwpsFR1);
+    
+    nrHelper->GetGnbPhy(gNBNetDev.Get(0), 0)
+        ->SetAttribute("Pattern", StringValue(tddgnbPattern));
    
     /*
      * We have configured the attributes we needed. Now, install and get the pointers
@@ -823,11 +828,10 @@ main(int argc, char* argv[])
      */
     NetDeviceContainer allSlUesNetDeviceContainer =
         nrHelper->InstallUeDevice(allSlUesContainer, allBwps);
-
-   
-    nrHelper->GetGnbPhy(gNBNetDev.Get(0), 0)->SetAttribute("Numerology", UintegerValue(4));
-    nrHelper->GetGnbPhy(gNBNetDev.Get(0), 0)
-        ->SetAttribute("Pattern", StringValue("DL|DL|DL|DL|DL|UL|UL|UL|UL|UL|"));
+    
+    int64_t randomStream = 1;
+    randomStream += nrHelper->AssignStreams(gNBNetDev, randomStream);
+    randomStream += nrHelper->AssignStreams(ueNetDev, randomStream);
 
     // When all the configuration is done, explicitly call UpdateConfig ()
     for (auto it = allSlUesNetDeviceContainer.Begin(); it != allSlUesNetDeviceContainer.End(); ++it)
@@ -1000,9 +1004,7 @@ main(int argc, char* argv[])
     stream += nrHelper->AssignStreams(allSlUesNetDeviceContainer, stream);
     stream += nrSlHelper->AssignStreams(allSlUesNetDeviceContainer, stream);
     
-    int64_t randomStream = 1;
-    randomStream += nrHelper->AssignStreams(gNBNetDev, randomStream);
-    randomStream += nrHelper->AssignStreams(ueNetDev, randomStream);
+    
 
     /*
     
