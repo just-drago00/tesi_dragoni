@@ -21,13 +21,14 @@ $ ./ns3 run "tesi --help"
 
 #include "v2x-kpi.h"
 #include <cmath>
-
+#include "ns3/flow-monitor-module.h"
 #include "ns3/antenna-module.h"
 #include "ns3/applications-module.h"
 #include "ns3/config-store-module.h"
 #include "ns3/config-store.h"
 #include "ns3/core-module.h"
 #include "ns3/internet-module.h"
+#include "ns3/internet-apps-module.h"
 #include "ns3/log.h"
 #include "ns3/lte-module.h"
 #include "ns3/mobility-module.h"
@@ -233,7 +234,7 @@ InstallFR1Mobility(int numugv , double ugvspeed , int numoperators, double opspe
     double radians2 = degrees * M_PI / 180.0; 
     int r2 = 600;
     NodeContainer ueNodes;
-    ueNodes.Create(numugv + numoperators);
+    ueNodes.Create(numugv + numoperators + 1) ;
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::ConstantVelocityMobilityModel");
     mobility.Install(ueNodes);
@@ -249,7 +250,8 @@ InstallFR1Mobility(int numugv , double ugvspeed , int numoperators, double opspe
         ueNodes.Get(i)->GetObject<ConstantVelocityMobilityModel>()->SetPosition(Vector(randomValue, randomValue, 0.0));
         ueNodes.Get(i)->GetObject<ConstantVelocityMobilityModel>()->SetVelocity(Vector(opspeed * cos(rad), opspeed * sin(rad), 0.0)); 
     }   
-
+    ueNodes.Get(numugv + numoperators)->GetObject<ConstantVelocityMobilityModel>()->SetPosition(Vector(1.0, 1.0, 0.0));
+    ueNodes.Get(numugv + numoperators)->GetObject<ConstantVelocityMobilityModel>()->SetVelocity(Vector(0.0, 0.0, 0.0));
     return ueNodes;
 }
 
@@ -498,7 +500,7 @@ main(int argc, char* argv[])
     double centralFrequencyBandSl = 26.5e9; // band n257  TDD //Here band is analogous to channel
     uint16_t bandwidthBandSl = 2000;         // Multiple of 100 KHz; 2000=200 MHz
     double centralFrequencyBandFR1 = 3.410e9; 
-    double bandwidthBandFR1 = 345.6;         // Multiple of 100 KHz; 345.6=34.5 MHz
+    uint16_t bandwidthBandFR1 = 350;         // Multiple of 100 KHz; 2.88 Mhz = 28.8
     std::string errorModel = "ns3::NrEesmIrT1";
     std::string scheduler = "ns3::NrMacSchedulerTdmaRR";
     std::string beamformingMethod = "ns3::DirectPathBeamforming";
@@ -629,13 +631,13 @@ main(int argc, char* argv[])
     {
         LogLevel logLevel =
             (LogLevel)(LOG_PREFIX_FUNC | LOG_PREFIX_TIME | LOG_PREFIX_NODE | LOG_LEVEL_ALL);
-        //LogComponentEnable("OnOffApplication", logLevel);
-        //LogComponentEnable("PacketSink", logLevel);
-        //LogComponentEnable("LtePdcp", logLevel);
-        //LogComponentEnable("NrSlHelper", logLevel);
-        //LogComponentEnable("NrSlUeRrc", logLevel);
-        //LogComponentEnable("NrUePhy", logLevel);
-        //LogComponentEnable("NrSpectrumPhy", logLevel);
+        LogComponentEnable("OnOffApplication", logLevel);
+        LogComponentEnable("PacketSink", logLevel);
+        LogComponentEnable("LtePdcp", logLevel);
+        LogComponentEnable("NrSlHelper", logLevel);
+        LogComponentEnable("NrSlUeRrc", logLevel);
+        LogComponentEnable("NrUePhy", logLevel);
+        LogComponentEnable("NrSpectrumPhy", logLevel);
         LogComponentEnable("NrGnbMac", logLevel);
         LogComponentEnable("NrGnbPhy", logLevel);   
     }
@@ -792,8 +794,6 @@ main(int argc, char* argv[])
     nrHelper->SetUeMacAttribute("SlThresPsschRsrp", IntegerValue(slThresPsschRsrp));
 
     
-    NetDeviceContainer gNBNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwpsFR1);
-    
     
     uint8_t bwpIdForGbrMcptt = 0;
 
@@ -810,7 +810,13 @@ main(int argc, char* argv[])
 
     std::set<uint8_t> bwpIdContainer;
     bwpIdContainer.insert(bwpIdForGbrMcptt);
-
+    
+    /**
+     * Finally, create the gNB and the UE device.
+     */
+    NetDeviceContainer gNBNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwpsFR1);
+    NetDeviceContainer ueNetDev = nrHelper->InstallUeDevice(allFR1UEContainer, allBwpsFR1);
+   
     /*
      * We have configured the attributes we needed. Now, install and get the pointers
      * to the NetDevices, which contains all the NR stack:
@@ -818,12 +824,8 @@ main(int argc, char* argv[])
     NetDeviceContainer allSlUesNetDeviceContainer =
         nrHelper->InstallUeDevice(allSlUesContainer, allBwps);
 
-    /**
-     * Finally, create the gNB and the UE device.
-     */
-    
-    NetDeviceContainer ueNetDev = nrHelper->InstallUeDevice(allFR1UEContainer, allBwpsFR1);
-
+   
+    nrHelper->GetGnbPhy(gNBNetDev.Get(0), 0)->SetAttribute("Numerology", UintegerValue(4));
     nrHelper->GetGnbPhy(gNBNetDev.Get(0), 0)
         ->SetAttribute("Pattern", StringValue("DL|DL|DL|DL|DL|UL|UL|UL|UL|UL|"));
 
@@ -840,12 +842,6 @@ main(int argc, char* argv[])
     {
         DynamicCast<NrGnbNetDevice>(*it)->UpdateConfig();
     }
-    /**
-     * Fix the random stream throughout the nr, propagation, and spectrum
-     * modules classes. This configuration is extremely important for the
-     * reproducibility of the results.
-     */
-  
 
     /*
      * Configure Sidelink. We create the following helpers needed for the
@@ -1021,9 +1017,10 @@ main(int argc, char* argv[])
 
     NodeContainer DoUEs;
     NodeContainer UgvUes;
+    NodeContainer DDCUe;
     NetDeviceContainer DoUEsNetDevice;
     NetDeviceContainer UgvUesNetDevice;
-    NetDeviceContainer gnbNetDevice;
+    NetDeviceContainer DDCUeNetDevice;
 
     if (enableOneRxPerSector)
     {
@@ -1047,6 +1044,11 @@ main(int argc, char* argv[])
         {
             DoUEs.Add(allFR1UEContainer.Get(i));
             DoUEsNetDevice.Add(allFR1UEContainer.Get(i)->GetDevice(0));
+        }
+        for(uint16_t i = numugv + numoperators; i < numugv + numoperators + 1; i++)
+        {
+            DDCUe.Add(allFR1UEContainer.Get(i));
+            DDCUeNetDevice.Add(allFR1UEContainer.Get(i)->GetDevice(0));
         }
     }
     else
@@ -1175,6 +1177,7 @@ main(int argc, char* argv[])
         }
         nrHelper->AttachToClosestEnb(DoUEsNetDevice, gNBNetDev);
         nrHelper->AttachToClosestEnb(UgvUesNetDevice, gNBNetDev);
+        nrHelper->AttachToClosestEnb(DDCUeNetDevice, gNBNetDev);
         //sl
         remoteAddress = InetSocketAddress(groupAddress4, port);
         localAddress = InetSocketAddress(Ipv4Address::GetAny(), port);
@@ -1442,10 +1445,8 @@ main(int argc, char* argv[])
         j++;
     }
     //fr1 apps ddcdo 
-    for(uint32_t i = 0; i < DoUEs.GetN(); i++)
-    {
-        clientFR1Apps1.Add(fr1Client1.Install(remoteHost));
-    nrHelper->ActivateDedicatedEpsBearer(DoUEsNetDevice.Get(i), lowLatBearer, lowLatTft);
+    clientFR1Apps1.Add(fr1Client1.Install(DDCUe.Get(0)));
+    nrHelper->ActivateDedicatedEpsBearer(DDCUeNetDevice.Get(0), lowLatBearer, lowLatTft);
     
     double jitter2 = startTimeSeconds->GetValue();
     Time appStart = slBearersActivationTime + Seconds(jitter2);
@@ -1455,21 +1456,17 @@ main(int argc, char* argv[])
     realAppStopTime = realAppStart + simTime.GetSeconds();
     clientFR1Apps1.Get(0)->SetStopTime(Seconds(realAppStopTime));
 
-    } 
     //fr1 apps ddcugv
-    for(uint32_t i = 0; i < UgvUes.GetN(); i++)
-    {
-    clientFR1Apps2.Add(fr1Client2.Install(remoteHost));
-    nrHelper->ActivateDedicatedEpsBearer(UgvUesNetDevice.Get(i), lowLatBearer, lowLatTft2);
+    clientFR1Apps2.Add(fr1Client2.Install(DDCUe.Get(0)));
+    nrHelper->ActivateDedicatedEpsBearer(DDCUeNetDevice.Get(0), lowLatBearer, lowLatTft2);
 
-    double jitter2 = startTimeSeconds->GetValue();
-    Time appStart = slBearersActivationTime + Seconds(jitter2);
+    jitter2 = startTimeSeconds->GetValue();
+    appStart = slBearersActivationTime + Seconds(jitter2);
     clientFR1Apps1.Get(0)->SetStartTime(appStart);
     realAppStart = slBearersActivationTime.GetSeconds() + jitter2 +
                        ((double)udpPacketSizeControl * 8.0 / (DataRate(dataRateddcugvString).GetBitRate()));
     realAppStopTime = realAppStart + simTime.GetSeconds();
     clientFR1Apps1.Get(0)->SetStopTime(Seconds(realAppStopTime));
-    }
    
     
     for(uint32_t i = 0; i < DoUEs.GetN(); i++)
@@ -1572,10 +1569,10 @@ main(int argc, char* argv[])
         serverFR1Apps2.Add(FR1Sink2.Install(UgvUes.Get(i)));
         serverFR1Apps2.Start(Seconds(1.0));
     }
-    serverFR1Apps5.Add(FR1Sink5.Install(remoteHost));
+    serverFR1Apps5.Add(FR1Sink5.Install(DDCUe.Get(0)));
     serverFR1Apps5.Start(Seconds(1.0));
 
-    serverFR1Apps3.Add(FR1Sink5.Install(remoteHost));
+    serverFR1Apps3.Add(FR1Sink5.Install(DDCUe.Get(0)));
     serverFR1Apps3.Start(Seconds(1.0));
 
     /*
