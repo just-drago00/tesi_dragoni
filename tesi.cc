@@ -187,7 +187,7 @@ InstallSLMobility(uint16_t numSector, uint16_t numCAVsPerSector,  double CAVsSpe
     NodeContainer ueNodes;
     ueNodes.Create(numCAVsPerSector * numSector);
 
-    std::cout << "Total UEs = " << ueNodes.GetN() << std::endl;
+    std::cout << "Total SL UEs = " << ueNodes.GetN() << std::endl;
 
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::ConstantVelocityMobilityModel");
@@ -238,6 +238,9 @@ InstallFR1Mobility(int numugv , double ugvspeed , int numoperators, double opspe
     MobilityHelper mobility;
     mobility.SetMobilityModel("ns3::ConstantVelocityMobilityModel");
     mobility.Install(ueNodes);
+
+    std::cout << "Total FR1 UEs = " << ueNodes.GetN() << std::endl;
+
     for(int i = 0; i < numugv; i++){
         ueNodes.Get(i)->GetObject<ConstantVelocityMobilityModel>()->SetPosition(Vector(r2 * cos(radians2), r2 * sin(radians2), 0.0));
         ueNodes.Get(i)->GetObject<ConstantVelocityMobilityModel>()->SetVelocity(Vector(ugvspeed * cos(radians2), ugvspeed * sin(radians2), 0.0));
@@ -500,7 +503,7 @@ main(int argc, char* argv[])
     double centralFrequencyBandSl = 26.5e9; // band n257  TDD //Here band is analogous to channel
     uint16_t bandwidthBandSl = 2000;         // Multiple of 100 KHz; 2000=200 MHz
     double centralFrequencyBandFR1 = 3.410e9; 
-    uint16_t bandwidthBandFR1 = 350;         // Multiple of 100 KHz; 2.88 Mhz = 28.8
+    uint16_t bandwidthBandFR1 = 400;         // Multiple of 100 KHz , 400=40 MHz
     std::string errorModel = "ns3::NrEesmIrT1";
     std::string scheduler = "ns3::NrMacSchedulerTdmaRR";
     std::string beamformingMethod = "ns3::DirectPathBeamforming";
@@ -641,14 +644,15 @@ main(int argc, char* argv[])
         LogComponentEnable("NrUePhy", logLevel);
         //LogComponentEnable("NrSpectrumPhy", logLevel);
         //LogComponentEnable("NrGnbMac", logLevel);
-        LogComponentEnable("NrGnbPhy", logLevel);   
+        //LogComponentEnable("NrGnbPhy", logLevel);   
     }
 
     /*
      * Default values for the simulation.
      */
     Config::SetDefault("ns3::LteRlcUm::MaxTxBufferSize", UintegerValue(999999999));
-
+    
+    
     /*
      * Create a NodeContainer for all the UEs
      */
@@ -672,6 +676,9 @@ main(int argc, char* argv[])
     positionAlloc->Add(Vector(0.0, 0.0, gNBheight));
     mobility.SetPositionAllocator(positionAlloc);
     mobility.Install(gnbContainer.Get(0));
+    
+    Packet::EnableChecking();
+    Packet::EnablePrinting();
     /*
      * Setup the NR module. We create the various helpers needed for the
      * NR simulation:
@@ -681,11 +688,10 @@ main(int argc, char* argv[])
      */
     Ptr<NrPointToPointEpcHelper> epcHelper = CreateObject<NrPointToPointEpcHelper>();
     Ptr<NrHelper> nrHelper = CreateObject<NrHelper>();
-     Ptr<IdealBeamformingHelper> idealBeamformingHelper = CreateObject<IdealBeamformingHelper>();
-    nrHelper->SetBeamformingHelper(idealBeamformingHelper);
-    // Put the pointers inside nrHelper
     nrHelper->SetEpcHelper(epcHelper);
-
+    Ptr<IdealBeamformingHelper> idealBeamformingHelper = CreateObject<IdealBeamformingHelper>();
+    nrHelper->SetBeamformingHelper(idealBeamformingHelper);
+    
     /*
      * Spectrum division. We create one operational band, containing
      * one component carrier, and a single bandwidth part
@@ -701,14 +707,7 @@ main(int argc, char* argv[])
     /* Create the configuration for the CcBwpHelper. SimpleOperationBandConf
      * creates a single BWP per CC
      */
-    CcBwpCreator::SimpleOperationBandConf bandConfSl(centralFrequencyBandSl,
-                                                     bandwidthBandSl,
-                                                     numCcPerBand,
-                                                     BandwidthPartInfo::V2V_Highway);
-
-    // By using the configuration created, it is time to make the operation bands
-    OperationBandInfo bandSl = ccBwpCreator.CreateOperationBandContiguousCc(bandConfSl);
-
+    
     CcBwpCreator::SimpleOperationBandConf bandConfFR1(centralFrequencyBandFR1,
                                                      bandwidthBandFR1,
                                                      numCcPerBand,
@@ -717,11 +716,21 @@ main(int argc, char* argv[])
     // By using the configuration created, it is time to make the operation bands
     OperationBandInfo bandFR1 = ccBwpCreator.CreateOperationBandContiguousCc(bandConfFR1);
 
+    CcBwpCreator::SimpleOperationBandConf bandConfSl(centralFrequencyBandSl,
+                                                     bandwidthBandSl,
+                                                     numCcPerBand,
+                                                     BandwidthPartInfo::V2V_Highway);
+
+    // By using the configuration created, it is time to make the operation bands
+    OperationBandInfo bandSl = ccBwpCreator.CreateOperationBandContiguousCc(bandConfSl);
+
+    
+
     /*
      * The configured spectrum division is:
-     * ------------Band1--------------
-     * ------------CC1----------------
-     * ------------BwpSl--------------
+     * ------------Band1-----------------Band2--------------
+     * ------------CC1-------------------Band2--------------
+     * ------------BwpSl-----------------BandFR1------------
      */
     if (enableChannelRandomness)
     {
@@ -743,17 +752,12 @@ main(int argc, char* argv[])
      * the band configuration can be done manually, but we leave it for more
      * sophisticated examples. For the moment, this method will take care
      * of all the spectrum initialization needs.
-     */
-    nrHelper->InitializeOperationBand(&bandSl);
-    allBwps = CcBwpCreator::GetAllBwps({bandSl});
-
+     */ 
     nrHelper->InitializeOperationBand(&bandFR1);
     allBwpsFR1 = CcBwpCreator::GetAllBwps({bandFR1});
-
     
-    
-    Packet::EnableChecking();
-    Packet::EnablePrinting();
+    nrHelper->InitializeOperationBand(&bandSl);
+    allBwps = CcBwpCreator::GetAllBwps({bandSl});
 
     /*
      * Antennas for all the UEs
@@ -771,7 +775,7 @@ main(int argc, char* argv[])
     nrHelper->SetGnbAntennaAttribute("NumRows", UintegerValue(4));
     nrHelper->SetGnbAntennaAttribute("NumColumns", UintegerValue(8));
     nrHelper->SetGnbAntennaAttribute("AntennaElement",
-                                     PointerValue(CreateObject<IsotropicAntennaModel>()));
+    PointerValue(CreateObject<IsotropicAntennaModel>()));
 
     nrHelper->SetDlErrorModel(errorModel);
     nrHelper->SetUlErrorModel(errorModel);
@@ -783,7 +787,6 @@ main(int argc, char* argv[])
                                           // Core latency
     epcHelper->SetAttribute("S1uLinkDelay", TimeValue(MilliSeconds(0)));
     
-
     nrHelper->SetUePhyAttribute("TxPower", DoubleValue(txPower));
     nrHelper->SetGnbPhyAttribute("TxPower", DoubleValue(txPower));
     nrHelper->SetGnbPhyAttribute("Numerology", UintegerValue(numerology));
@@ -794,26 +797,22 @@ main(int argc, char* argv[])
     nrHelper->SetUeMacAttribute("T2", UintegerValue(t2));
     nrHelper->SetUeMacAttribute("ActivePoolId", UintegerValue(0));
     nrHelper->SetUeMacAttribute("SlThresPsschRsrp", IntegerValue(slThresPsschRsrp));
-
-    
     
     uint8_t bwpIdForGbrMcptt = 0;
 
     nrHelper->SetBwpManagerTypeId(TypeId::LookupByName("ns3::NrSlBwpManagerUe"));
-    // following parameter has no impact at the moment because:
-    // 1. No support for PQI based mapping between the application and the LCs
-    // 2. No scheduler to consider PQI
-    // However, till such time all the NR SL examples should use GBR_MC_PUSH_TO_TALK
-    // because we hard coded the PQI 65 in UE RRC.
+    nrHelper->SetUeBwpManagerAlgorithmAttribute("GBR_MC_PUSH_TO_TALK",
+                                                UintegerValue(bwpIdForGbrMcptt));
 
     // gNb routing between bearer type and bandwidth part
-    nrHelper->SetGnbBwpManagerAlgorithmAttribute("NGBR_LOW_LAT_EMBB", UintegerValue(bwpIdForGbrMcptt));
-
-
+    nrHelper->SetGnbBwpManagerAlgorithmAttribute("NGBR_LOW_LAT_EMBB", UintegerValue(0));
+    
     std::set<uint8_t> bwpIdContainer;
     bwpIdContainer.insert(bwpIdForGbrMcptt);
     
-    /**
+    NetDeviceContainer allSlUesNetDeviceContainer =
+        nrHelper->InstallUeDevice(allSlUesContainer, allBwps);
+    /*
      * Finally, create the gNB and the UE device.
      */
     NetDeviceContainer gNBNetDev = nrHelper->InstallGnbDevice(gnbContainer, allBwpsFR1);
@@ -826,8 +825,6 @@ main(int argc, char* argv[])
      * We have configured the attributes we needed. Now, install and get the pointers
      * to the NetDevices, which contains all the NR stack:
      */
-    NetDeviceContainer allSlUesNetDeviceContainer =
-        nrHelper->InstallUeDevice(allSlUesContainer, allBwps);
     
     int64_t randomStream = 1;
     randomStream += nrHelper->AssignStreams(gNBNetDev, randomStream);
@@ -1004,8 +1001,6 @@ main(int argc, char* argv[])
     stream += nrHelper->AssignStreams(allSlUesNetDeviceContainer, stream);
     stream += nrSlHelper->AssignStreams(allSlUesNetDeviceContainer, stream);
     
-    
-
     /*
     
      * if enableOneRxPerSector is true:
@@ -1095,7 +1090,6 @@ main(int argc, char* argv[])
         ipv4RoutingHelper.GetStaticRouting(remoteHost->GetObject<Ipv4>());
     remoteHostStaticRouting->AddNetworkRouteTo(Ipv4Address("7.0.0.0"), Ipv4Mask("255.0.0.0"), 1);
 
-
     uint32_t dstL2Groupcast = 254;
     Ipv4Address groupAddress4("225.0.0.0"); // use multicast address as destination
     Ipv6Address groupAddress6("ff0e::1");   // use multicast address as destination
@@ -1130,7 +1124,6 @@ main(int argc, char* argv[])
     uint16_t port7 = 1237;
     uint16_t port8 = 1238;
     
-
     Ptr<LteSlTft> tft;
 
     SidelinkInfo slInfo;
@@ -1469,7 +1462,6 @@ main(int argc, char* argv[])
                        ((double)udpPacketSizeControl * 8.0 / (DataRate(dataRateddcugvString).GetBitRate()));
     realAppStopTime = realAppStart + simTime.GetSeconds();
     clientFR1Apps1.Get(0)->SetStopTime(Seconds(realAppStopTime));
-   
     
     for(uint32_t i = 0; i < DoUEs.GetN(); i++)
     {
@@ -1512,7 +1504,6 @@ main(int argc, char* argv[])
         realAppStopTime = realAppStart + simTime.GetSeconds();
         clientFR1Apps5.Get(i)->SetStopTime(Seconds(realAppStopTime));
     }
-
 
     ApplicationContainer serverApps;
     PacketSinkHelper sidelinkSink("ns3::UdpSocketFactory", localAddress);
@@ -1742,7 +1733,6 @@ main(int argc, char* argv[])
                                                                clientFR1Apps5.Get(ac)->GetNode(),
                                                                localAddrs));
         }
-
 
         // Set Rx traces
         for (uint32_t ac = 0; ac < serverApps.GetN(); ac++)
